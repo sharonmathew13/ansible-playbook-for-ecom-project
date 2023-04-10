@@ -1,0 +1,131 @@
+---
+- name: 'LAMP'
+  hosts: localhost
+  connection: local
+  become: yes
+  become_method: enable
+  vars:
+    mysql_user: ecomuser
+    mysql_pass: ecompassword
+    ansible_python_interpreter: /usr/bin/python3 
+  tasks:
+    - name: 'upgrade all'
+      yum:
+        name: '*'
+        state: latest
+        update_cache: yes
+    - name: Install LAMP server and php-mysql
+      yum:
+       name:
+        - httpd
+        - mariadb-server
+        - php
+        - php-mysqlnd
+       state: present
+
+    - name: 'install pip3'
+      yum:
+         name: python3-pip
+         state: installed
+    - name: 'install firewall'
+      pip:
+         name: firewall
+         state: present
+    - name: 'install firewalld'
+      yum:
+         name: firewalld
+         state: installed
+    - name: 'start and enable firewalld'
+      systemd:
+         name: firewalld
+         state: started
+         enabled: yes
+   
+    - name: Start and enable mariadb service
+      systemd:
+          name: mariadb
+          state: started
+          enabled: yes
+
+    - name: 'Configure port 3306'
+      firewalld:
+          port: 3306/tcp
+          permanent: yes
+          immediate: yes
+          state: enabled
+          zone: public
+    - name: Reload Firewalld
+      systemd:
+        name: firewalld
+        state: reloaded
+
+    - name: Install EPEL repository package
+      yum:
+        name: epel-release
+        state: present
+      when: ansible_os_family == 'RedHat'
+    - name: Update package cache
+      yum:
+         name: '*'
+         state: latest
+
+    - name: Install Python MySQL client library
+      yum:
+        name: python3-mysql
+        state: present
+    - name: Create MySQL user
+      mysql_user:
+        name: "{{ mysql_user }}"
+        password: "{{ mysql_pass }}"
+        host: "localhost"
+        state: present
+    - name: Grant all privileges to MySQL user
+      mysql_user:
+        name: "{{ mysql_user }}"
+        password: "{{ mysql_pass }}"
+        priv: "*.*:ALL"
+        host: "localhost"
+        state: present
+        append_privs: yes
+    - name: Create database
+      mysql_db:
+        name: ecomdb
+        login_user: root
+    - name: Running SQL script
+      mysql_db:
+        login_user: root
+        name: ecomdb
+        state: import
+        target: /home/bob/db-load-script.sql
+    - name: 'Configure port 80'
+      firewalld:
+          port: 80/tcp
+          permanent: yes
+          immediate: yes
+          state: enabled
+          zone: public
+    - name: Reload Firewalld
+      systemd:
+        name: firewalld
+        state: reloaded
+    - name: Start and enable httpd service
+      systemd:
+          name: httpd
+          state: started
+          enabled: yes
+    - name: Replace index.html with index.php in httpd.conf
+      lineinfile:
+           path: /etc/httpd/conf/httpd.conf
+           regexp: '^(\s*)DirectoryIndex(\s+)index.html(\s*)$'
+           line: '\g<1>DirectoryIndex index.php\g<3>'
+      become: true
+    - name: 'install git'
+      yum:
+         name: git
+         state: installed 
+    - name: Clone Git repository
+      git:
+         repo: https://github.com/kodekloudhub/learning-app-ecommerce.git
+         dest: /var/www/html/
+    - name: Replace IP address in index.php file
+      command: sudo sed -i 's/172.20.1.101/localhost/g' /var/www/html/index.php
